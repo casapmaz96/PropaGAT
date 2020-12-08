@@ -1,6 +1,8 @@
 # PropaGAT
 Experimenting with Graph Attentional Layers for detecting propaganda
 
+For data visit https://propaganda.qcri.org/semeval2020-task11/
+
 This project aims to detect political propaganda in news articles using graph attention networks (GATs). 
 The implementation uses two GAT networks:
 a) One to encode sentences as fully connected, directed graphs with words as nodes and,
