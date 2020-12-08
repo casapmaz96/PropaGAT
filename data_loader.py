@@ -17,41 +17,96 @@ class DataLoader:
 
         with open(labelsPath, 'r') as lf:
             self.labels = json.load(lf) #np.load(labelsPath, allow_pickle=True)[()]
+        self.change = None
+        self.indices = None
+        self.lenArt = 0
+        self.noSample = 0
 
     def readData(self, trainPath):
 
 
-#        """        ##READ LINES
-#        trainFiles = glob.glob(trainPath+'/*.txt')
-#        testFiles = glob.glob(testPath+'/*.txt')
-#        shuffle(testFiles); shuffle(trainFiles)
-
-#        trarticles = []; tsarticles = []
-#        i = 0
-
-#        for f in trainFiles:
-#            tf = open(f)
-#            lines = tf.readlines()
-#            lines = map(lambda x: self.voc.s2v(x).long().to('cuda'), lines) #[self.voc.s2v(l).long() for l in lines]
-#            #print(f)
-#            trarticles.append( (lines, int(self.labels[f[len(trainPath)+1:-4]])) )
-#            #i+=1
-#            tf.close()
-#        i=0
-#        for f in testFiles:
-#            tf = open(f)
-#            lines = tf.readlines()
-#            lines = map(lambda x: self.voc.s2v(x).long().to('cuda'), lines) # [self.voc.s2v(l).long() for l in lines]
-#            tsarticles.append( (lines, int(self.labels[f[len(testPath)+1:-4]])) )
-#            #i+=1
-#            tf.close()"""
         with open(trainPath, 'r') as trfile:
             trainArticles = json.load(trfile)
-        #with open(testPath, 'r') as tsfile:
-        #    testArticles = json.load(tsfile)
 
-        trarticles = [(map(lambda x: self.voc.s2v(x).long().to(torch.device('cuda')), trainArticles[a]), int(self.labels[a])) for a in trainArticles.keys()]
-        #tsarticles = [(map(lambda x: self.voc.s2v(x).long().to(torch.device('cuda')), testArticles[a]), int(self.labels[a])) for a in testArticles.keys()]
+        trarticles = [(map(lambda x: self.voc.s2v(x).long(), trainArticles[a]), int(self.labels[a])) for a in trainArticles.keys()]
+        self.lenArt = len(trainArticles)
+
+        return trarticles
+
+    def readData_sentence(self, trainPath):
+
+
+        with open(trainPath, 'r') as trfile:
+            trainArticles = json.load(trfile)
+#        print(len(list(self.labels.keys()))); print(len(list(trainArticles.keys())))
+        trarticles = []
+        ap = 0
+        co = 0
+        for id in trainArticles.keys():
+
+            if id in self.labels.keys():
+                trarticles.append([id,[]])
+
+                for i , s in enumerate(trainArticles[id]):
+                    if len(s)>1:
+                        co += 1
+                        sv = self.voc.s2v(s).long()
+                        if sv.size()[0] > 0:
+                            trarticles[-1][1].append((sv, self.labels[id][i]))
+                            if self.labels[id][i] == 1:
+                                ap = 1
+                trarticles[-1].append(ap)
+        #trarticles = [(map(lambda x: self.voc.s2v(x).long(), trainArticles[a]), int(self.labels[a])) for a in trainArticles.keys()]
+#        print(trarticles)
+        self.lenArt = len(trarticles)
+#        print(len(trarticles), co)
+        return trarticles
+
+
+    def readData_ub(self, trainPath):
+
+
+        with open(trainPath, 'r') as trfile:
+            trainArticles = json.load(trfile)
+
+        trarticles = [[a, map(lambda x: self.voc.s2v(x).long(), trainArticles[a]), int(self.labels[a])] for a in trainArticles.keys()]
+
+        if self.change == None:
+            for i, a in enumerate(trainArticles.keys()):
+                if int(self.labels[a]) > 0:
+                    self.change = i
+                    break
+
+            self.lenArt = len(trainArticles)
+            indices = [1/(self.change*2)]*self.lenArt
+            indices[i:] = [1/((self.lenArt-i)*2)]*(self.lenArt-i)
+            self.indices = indices
+            self.noSample = 2*(self.lenArt-i)
+
+        return trarticles
+
+    def readData_with_padding(self, trainPath):
+
+        self.voc.w2i['<PAD>'] = self.voc.keysize
+        self.voc.keysize += 1
+
+        with open(trainPath, 'r') as trfile:
+            trainArticles = json.load(trfile)
+
+        trarticles = [(map(lambda x: self.voc.s2v(x).long(), trainArticles[a]), int(self.labels[a])) for a in trainArticles.keys()]
+
+        if self.change == None:
+            for i, a in enumerate(trainArticles.keys()):
+                if int(self.labels[a]) > 0:
+                    self.change = i
+                    break
+
+            self.lenArt = len(trainArticles)
+            indices = [1/(self.change*2)]*self.lenArt
+            indices[i:] = [1/((self.lenArt-i)*2)]*(self.lenArt-i)
+            self.indices = indices
+            self.noSample = 2*(self.lenArt-i)
+
         return trarticles
 
 class DataLoaderv2:
