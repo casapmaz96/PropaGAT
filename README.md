@@ -10,3 +10,4 @@ b) One to encode articles as fully connected, directed graphs with sentences as 
 
 The goal is to not only detect propaganda in article level, but also use attention maps to detect propaganda in sentence level or possibly fragment/phrase level for improved explainability.
 
+PS. The documentation and time efficiency and command line interactions are horrible for now. Bear with me please.
