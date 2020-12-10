@@ -1,4 +1,6 @@
 # PropaGAT
+PS. The documentation and time efficiency and command line interactions are horrible for now. This is code for an ongoing thesis so my only priority currently is getting some experiment results. Bear with me please.
+
 Experimenting with Graph Attentional Layers for detecting propaganda
 
 For data visit https://propaganda.qcri.org/semeval2020-task11/
@@ -10,4 +12,3 @@ b) One to encode articles as fully connected, directed graphs with sentences as 
 
 The goal is to not only detect propaganda in article level, but also use attention maps to detect propaganda in sentence level or possibly fragment/phrase level for improved explainability.
 
-PS. The documentation and time efficiency and command line interactions are horrible for now. Bear with me please.
