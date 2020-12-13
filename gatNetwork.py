@@ -10,7 +10,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 class SentenceEncoder(nn.Module):
 
-    def __init__(self, wFeat, vocab, edim, labels=2, slope=0.01): ##Add BERT pretrained word embeddings
+    def __init__(self, wFeat, vocab, edim, labels=2, slope=0.01, useBert=0): ##Add BERT pretrained word embeddings
 
         ##sRep: sentence representaiton, can be dependency tree(1) or random graph(0)
         ##wFeat: desired feature size of word/sentence representations
@@ -22,8 +22,11 @@ class SentenceEncoder(nn.Module):
         self.wFeat = wFeat; self.edim = edim
 
         self.embedding = nn.Embedding(vocab, self.edim)
-        self.sEncoder = GATLayer(self.edim, self.wFeat, slope)
-
+        if useBert == 1:
+            self.sEncoder = GATLayer(768, self.wFeat, slope)
+        else:
+            self.sEncoder = GATLayer(self.edim, self.wFeat, slope)
+        self.useBert = useBert
         ## Add final linear layers for classification
         self.classifier = nn.Linear(self.wFeat, labels)
 
@@ -33,8 +36,9 @@ class SentenceEncoder(nn.Module):
 
 
         ##Get word representations
-        words = self.embedding(inSen)
-
+        if self.useBert==0:
+            words = self.embedding(inSen)
+        else: words=inSen
         if inSen.size()[0]!=0:
 
             ##Get sentence representation and pool
@@ -218,5 +222,4 @@ class Article2Graph(nn.Module):
 
 #        self.sentenceClassifier = nn.Linear(wPool, sLabel)
 #        self.documentClassifier = nn.Linear(sPool, dLabel)
-
 
