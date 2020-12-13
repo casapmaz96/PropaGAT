@@ -155,4 +155,3 @@ class GATLayerBatchEnabled(nn.Module):
         ##final: h:(NoOfWords, outsize), att: (noOfWords, noOfWords)
 
         return h, att
-
