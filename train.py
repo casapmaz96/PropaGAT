@@ -550,10 +550,10 @@ def gridSearch(trainPath, vocabPath, labelPath, wFeats, sFeats, edims,  sLabels=
 
                 if l>0:
                     l=torch.tensor([1], dtype=torch.long, device=device)
-                    truelabels.append(1)
+                    if n > 1999: truelabels.append(1)
                 else:
                     l=torch.tensor([0], dtype=torch.long, device=device)
-                    truelabels.append(0)
+                    if n > 1999: truelabels.append(0)
 
                 ##Iterate over sentences in article
                 sentences = [SGAT(s.to(device), selfLink=selfLink) for s in article]
@@ -569,7 +569,7 @@ def gridSearch(trainPath, vocabPath, labelPath, wFeats, sFeats, edims,  sLabels=
                     dpooled, datt, dunpooled, label = DGAT(encSents, selfLink=selfLink)
 
                     ##Create article wise confusion matrix stats
-                    if n > 2000 :
+                    if n > 1999 :
                         if l.item() == label.argmax().item():
                             if l.item() == 0:
                                 tneg[-1] += 1
