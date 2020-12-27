@@ -10,13 +10,14 @@ import seaborn as sb
 import matplotlib.pyplot as plt
 import pandas as pd
 from transformers import BertTokenizer, BertModel
-
+import numpy as np
+from sklearn.decomposition import PCA
 
 def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLabels = 2, dLabels = 2, sSlope=0.01, dSlope=0.01, selfLink=0, slc = 0, useBert=0):
 
 
     device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-
+    print('Model tested: ', modelPath)
     dl = DataLoader(vocabPath, labelPath)
     v = dl.voc.keysize
 
@@ -50,7 +51,7 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
 
     if useBert==1:
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        bert = BertModel.from_pretrained('bert-base-uncased')
+        bert = BertModel.from_pretrained('bert-base-uncased').to(device)
         if slc == 0:
             testArticles = dl.readData_bert(testPath)
             sample = list(torch.utils.data.WeightedRandomSampler(dl.indices, dl.noSample, replacement=False))
@@ -73,6 +74,9 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
     truelabels = []
     cosines = []; normdiffs = []
     plotpoints = torch.tensor([], device=device)
+    plotpointsNorm = torch.tensor([], device=device)
+    oProp = 0
+    iProp = 0
     sentencelabels = []; normDifMulti = []
 
 #    testArticles = testArticles[-2:-1]
@@ -85,9 +89,9 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
             ls = [s[1] for s in article]
             article = articleS
             sentencelabels = sentencelabels+ls
-
+            pca = PCA(n_components = 2)
         if useBert == 1:
-            article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids']).unsqueeze(0))[0].squeeze(dim=0)[1:-1] for s in article]
+            article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids'], device=device).unsqueeze(0))[0].detach().squeeze(dim=0)[1:-1] for s in article]
 
         if l>0:
             l=torch.tensor([1], dtype=torch.long, device=device) #.to('cuda')
@@ -110,15 +114,26 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
             dpooled, datt, dunpooled, label = DGAT(encSents, selfLink=selfLink)
             if slc==1:
                 cosine = torch.cosine_similarity(datt.float(), torch.transpose(datt, 0, 1).float(), dim=1)
-                normDif = datt.norm(dim=0)-datt.norm(dim=1)
+                outNorm = datt.norm(dim=0); inNorm = datt.norm(dim=1)
+                normDif = outNorm - inNorm #datt.norm(dim=0)-datt.norm(dim=1)
 
                 datapoint  = torch.cat((cosine.unsqueeze(1), normDif.unsqueeze(1).float(), torch.tensor(ls, device=device).float().unsqueeze(1)), 1)
                 plotpoints = torch.cat((plotpoints, datapoint), 0)
 
+                datapointNorm = torch.cat((outNorm.unsqueeze(1).float(), inNorm.unsqueeze(1).float(), torch.tensor(ls, device=device).float().unsqueeze(1)), 1)
+                plotpointsNorm = torch.cat((plotpointsNorm, datapointNorm), 0)
 
-            sb.heatmap(datt.detach().to('cpu'), robust=True)
-            plt.savefig('heatmaps/{modelName}-{aid}.png'.format(modelName=modelPath.replace('dataset/', "").replace('.tar', ''), aid = id))
-            plt.clf()
+                outNormSort = torch.argsort(outNorm, descending=True); inNormSort = torch.argsort(inNorm, descending=False)
+
+                if ls[outNormSort[0].item()] == 1:
+                    oProp += 1
+                if ls[inNormSort[0].item()] == 1:
+                    iProp +=1
+
+
+                sb.heatmap(datt.detach().to('cpu'), robust=True)
+                plt.savefig('heatmaps/{modelName}-{aid}.png'.format(modelName=modelPath.replace('dataset/', "").replace('.tar', ''), aid = id))
+                plt.clf()
 
             if l.item() == label.argmax().item():
                 if l.item() == 0:
@@ -141,8 +156,16 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
         plotpoints = torch.transpose(plotpoints.to('cpu'), 0, 1).detach().numpy()
         plotPandas = pd.DataFrame({'cosine similarity': plotpoints[0], 'norm difference':plotpoints[1], 'z':plotpoints[2]})
 
+        plotpointsNorm = torch.transpose(plotpointsNorm.to('cpu'), 0, 1).detach().numpy()
+        plotPandasNorm = pd.DataFrame({'Norm of outgoing edge scores vector': plotpointsNorm[0], 'Norm of incoming edge scores vector': plotpointsNorm[1], 'z':plotpointsNorm[2]})
+
         sb.scatterplot(data=plotPandas, x='cosine similarity', y='norm difference', hue='z', palette='deep')
         plt.savefig('scatterplots/{modelName}-1trial.png'.format(modelName = modelPath.replace('dataset/', "").replace('.tar', '')))
+        plt.clf()
+
+        sb.scatterplot(data=plotPandasNorm, x='Norm of outgoing edge scores vector', y='Norm of incoming edge scores vector', hue='z', palette='deep')
+        plt.savefig('normplots/{modelName}.png'.format(modelName = modelPath.replace('dataset/', "").replace('.tar', '')))
+
 
     ent = time.time()
 
@@ -150,8 +173,10 @@ def testGATs(testPath, vocabPath, labelPath, modelPath, wFeat, sFeat, edim, sLab
     print('f1 score: ', f1_score(truelabels, predictions, average= None))
     print('confusion matrix of test: ')
     print(tneg, '	', fneg, '\n', fpos,'	', tpos)
-
-
+    if slc==1:
+        print('Percentage of highest outgoing edges that are propaganda: ', oProp/n)
+        print('Percentage of highest incoming edges that are propaganda: ', iProp/n)
+        print('Percentage of propaganda sentences in all sentences: ', sum(sentencelabels)/len(sentencelabels))
 
 def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabels=2, dLabels=2, sSlope=0.01, dSlope=0.01, load=0, modelPath='dataset/readdatau5.tar', saveName='', debugMode=0, selfLink=0,  slcload=0, awise=0,useBert=0):
 
@@ -162,7 +187,7 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
 
 
 
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    device =  torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
     ##Prepare data loader, train/test parts
     dl = DataLoader(vocabPath, labelPath)
@@ -171,13 +196,14 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
     ##Prepare models, loss, optimizer
     SGAT = SentenceEncoder(wFeat, v, edim, labels=sLabels, slope=sSlope, useBert=useBert).to(device)
     DGAT = DocumentEncoder(wFeat, sFeat, labels=dLabels, slope=dSlope).to(device)
-    SLC = SentenceLevelClassifier().to(device)
+#    SLC = SentenceLevelClassifier().to(device)
 
     docLoss = nn.CrossEntropyLoss().to(device) #weight = torch.tensor([0.1, 0.9])).to(device)
     #senLoss = nn.CrossEntropyLoss().to(device)
     senLoss = nn.CosineEmbeddingLoss()
     senLoss_verbose = nn.CosineEmbeddingLoss(reduction='none')
     senLoss2 = nn.L1Loss(reduction='none')
+
     if awise == 1:
         opt = torch.optim.Adam(list(SGAT.parameters())+list(DGAT.parameters()), lr= 0.001)
     else:
@@ -251,10 +277,10 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
     ##Training loop
     encSents = torch.tensor([], device=device)
 
-    SGAT.train(); DGAT.train(); SLC.train()
+    SGAT.train(); DGAT.train()
     if useBert==1:
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        bert = BertModel.from_pretrained('bert-base-uncased')
+        bert = BertModel.from_pretrained('bert-base-uncased').to(device)
 
     for i in range(prevEpoch, epoch):
         if useBert == 1:
@@ -287,7 +313,7 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
 
             if useBert == 1:
 
-                article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids']).unsqueeze(0))[0].squeeze(dim=0)[1:-1] for s in article]
+                article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids']).to(device).unsqueeze(0))[0].detach().squeeze(dim=0)[1:-1] for s in article]
 
             if awise == 0:
                 articleS = [s[0] for s in article]
@@ -357,7 +383,7 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
 #                    tposs[-1] += torch.sum(confusion == -1).item()
 #                    fnegs[-1] += torch.sum(confusion == 1).item()
 #                    fposs[-1] += torch.sum(confusion == -2).item()
-                     slosspe += sloss
+                     slosspe += sloss.item()
 
 
                 opt.zero_grad()
@@ -380,7 +406,7 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
                 tnegphi.append(0); fnegphi.append(0)
                 tposphi.append(0); fposphi.append(0)
                 lossphi.append(0)
-
+#                return
         remain = lenArt%99
 
         if remain != 0 and debugMode == 0:
@@ -408,7 +434,7 @@ def trainGATs(trainPath, vocabPath, labelPath, wFeat, sFeat, edim, epoch=1,sLabe
         torch.save({ 'epoch': epoch,
                      'sentence_model': SGAT.state_dict(),
                      'document_model': DGAT.state_dict(),
-                     'slc_model': SLC.state_dict(),
+#                     'slc_model': SLC.state_dict(),
                      'optimizer': opt.state_dict(),
                      'losspe': losspe,
                      'lossphi': lossphi,
@@ -459,15 +485,15 @@ def gridSearch(trainPath, vocabPath, labelPath, wFeats, sFeats, edims,  sLabels=
     encSents = torch.tensor([], device=device)
     if useBert == 1:
         trainArticles = dl.readData_bert(trainPath)
-        sample = list(torch.utils.data.WeightedRandomSampler(dl.indices, 300, replacement=False))
+        sample = list(torch.utils.data.WeightedRandomSampler(dl.indices, 3000, replacement=False))
     else:
         trainArticles = dl.readData_ub(trainPath)
-        sample = list(torch.utils.data.WeightedRandomSampler(dl.indices, 300, replacement=False))
+        sample = list(torch.utils.data.WeightedRandomSampler(dl.indices, 3000, replacement=False))
     articlesTurnedToList = {}
 
     if useBert==1:
         tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        bert = BertModel.from_pretrained('bert-base-uncased')
+        bert = BertModel.from_pretrained('bert-base-uncased').to(device)
 
 
     for ttt, i in enumerate(params):
@@ -518,7 +544,7 @@ def gridSearch(trainPath, vocabPath, labelPath, wFeats, sFeats, edims,  sLabels=
                 id, article, l = a
                 if useBert == 1:
                     #article = [bert(torch.tensor(tokenizer(s)['input_ids']).unsqueeze(0))[0].squeeze(dim=0)[1:-1] for s in article]
-                    article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids']).unsqueeze(0))[0].squeeze(dim=0)[1:-1] for s in article]
+                    article = [bert(torch.tensor(tokenizer(s[:510] if len(s)>510 else s)['input_ids'], device=device).unsqueeze(0))[0].detach().squeeze(dim=0)[1:-1] for s in article]
 
 
 
@@ -541,35 +567,36 @@ def gridSearch(trainPath, vocabPath, labelPath, wFeats, sFeats, edims,  sLabels=
                 if len(encSents)!=0:
 
                     dpooled, datt, dunpooled, label = DGAT(encSents, selfLink=selfLink)
-                    loss = docLoss(label.unsqueeze(0), l)
 
                     ##Create article wise confusion matrix stats
-                    if l.item() == label.argmax().item():
-                        if l.item() == 0:
-                            tneg[-1] += 1
-                            predictions.append(0)
+                    if n > 2000 :
+                        if l.item() == label.argmax().item():
+                            if l.item() == 0:
+                                tneg[-1] += 1
+                                predictions.append(0)
+                            else:
+                                tpos[-1] += 1
+                                predictions.append(1)
                         else:
-                            tpos[-1] += 1
-                            predictions.append(1)
+                            if l.item() == 0:
+                                fpos[-1] += 1
+                                predictions.append(1)
+                            else:
+                                fneg[-1] += 1
+                                predictions.append(0)
                     else:
-                        if l.item() == 0:
-                            fpos[-1] += 1
-                            predictions.append(1)
-                        else:
-                            fneg[-1] += 1
-                            predictions.append(0)
+                        loss = docLoss(label.unsqueeze(0), l)
 
-                    opt.zero_grad()
-                    loss.backward()
-                    opt.step()
+                        opt.zero_grad()
+                        loss.backward()
+                        opt.step()
 
 
                     encSents = torch.tensor([], device=device)
 
 
             print(truelabels, predictions)
-            if epoch==2:
-                fscores.append(f1_score(truelabels, predictions))
+            fscores.append(f1_score(truelabels, predictions))
 
             #print('\n~f1 score: ', fscores[-1])
             print('confusion matrix: ')
@@ -608,3 +635,55 @@ def printPropSentence(path, label, vocab='vocab.json', sentence=1):
                 if line==1:
                     indices.append(ii)
             print('Propaganda lines: ', indices)
+
+def testSentenceBaseline(testPath, vocabPath, labelPath):
+
+
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+    dl = DataLoader(vocabPath, labelPath)
+    v = dl.voc.keysize
+
+    testArticles = dl.readData_sentence(testPath, 0)
+    lenArt = dl.lenArt
+    stt = time.time()
+
+    ##Iterate over articles in dataset
+
+
+    oProp = 0
+    iProp = 0
+    sentencelabels = []
+#    testArticles = testArticles[-2:-1]
+    for n, a in enumerate(testArticles): # enumerate(trainArticles):
+#        a = testArticles[-1]
+        id, article, l = a
+        articleS = [s[0] for s in article]
+        ls = [s[1] for s in article]
+        article = articleS
+        sentencelabels = sentencelabels+ls
+
+        sentences = [s for s in article]  # map(lambda s: SGAT(s), article)
+
+        if len(sentences)!=0:
+
+            datt = F.softmax(torch.rand((len(sentences), len(sentences))), dim=0)
+
+#            if slc==1:
+
+            outNorm = datt.norm(dim=0); inNorm = datt.norm(dim=1)
+
+            outNormSort = torch.argsort(outNorm, descending=True); inNormSort = torch.argsort(inNorm, descending=False)
+            if ls[outNormSort[0].item()] == 1:
+                oProp += 1
+
+            if ls[inNormSort[0].item()] == 1:
+                iProp +=1
+
+
+
+#    ent = time.time()
+
+    print('Percentage of highest outgoing edges that are propaganda: ', oProp/n)
+    print('Percentage of highest incoming edges that are propaganda: ', iProp/n)
+    print('Percentage of propaganda sentences in all sentences: ', sum(sentencelabels)/len(sentencelabels))
